@@ -18,35 +18,41 @@ const client = new Client({
   ]
 });
 
-client.once(Events.ClientReady, (client) => {
-  console.log(`Logged in as ${client.user.tag}`);
+// ⚠️ ضع هنا آيدي القناة المخصصة للتسجيل في سيرفرك
+const REGISTRATION_CHANNEL_ID = "1539226008937439274";
+
+client.once(Events.ClientReady, (c) => {
+  console.log(`Logged in as ${c.user.tag}`);
 });
 
+// عند انضمام عضو جديد: يرسل البوت الرسالة في قناة التسجيل
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
+    const channel = member.guild.channels.cache.get(REGISTRATION_CHANNEL_ID);
+    if (!channel) return console.error("لم يتم العثور على قناة التسجيل.");
+
     const button = new ButtonBuilder()
-      .setCustomId(`register_${member.id}`)
+      .setCustomId("open_register_modal")
       .setLabel("فتح التسجيل")
       .setStyle(ButtonStyle.Primary);
 
-    await member.send({
-      content: "مرحباً! اضغط على الزر لإكمال التسجيل.",
+    await channel.send({
+      content: `مرحباً بك ${member}! اضغط على الزر للبدء في عملية التسجيل:`,
       components: [
         new ActionRowBuilder().addComponents(button)
       ]
     });
   } catch (error) {
-    console.error("DM error:", error);
+    console.error("خطأ أثناء إرسال رسالة الترحيب:", error);
   }
 });
 
+// التعامل مع الضغط على الزر والـ Modal
 client.on(Events.InteractionCreate, async (interaction) => {
+  
+  // 1. عند الضغط على زر التسجيل
   if (interaction.isButton()) {
-    if (!interaction.customId.startsWith("register_")) return;
-
-    const memberId = interaction.customId.replace("register_", "");
-
-    if (memberId !== interaction.user.id) return;
+    if (interaction.customId !== "open_register_modal") return;
 
     const modal = new ModalBuilder()
       .setCustomId("registration_modal")
@@ -75,42 +81,31 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
+  // 2. عند إرسال بيانات الـ Modal
   if (!interaction.isModalSubmit()) return;
   if (interaction.customId !== "registration_modal") return;
 
-  const gameName = interaction.fields
-    .getTextInputValue("game_name")
-    .trim();
+  const gameName = interaction.fields.getTextInputValue("game_name").trim();
+  const gangName = interaction.fields.getTextInputValue("gang_name").trim();
 
-  const gangName = interaction.fields
-    .getTextInputValue("gang_name")
-    .trim();
-
-  const member = await interaction.guild.members.fetch(
-    interaction.user.id
-  );
-
+  const member = await interaction.guild.members.fetch(interaction.user.id);
   const botMember = interaction.guild.members.me;
 
+  // التحقق من الصلاحيات
   if (
-    !botMember.permissions.has(
-      PermissionsBitField.Flags.ManageRoles
-    ) ||
-    !botMember.permissions.has(
-      PermissionsBitField.Flags.ManageNicknames
-    )
+    !botMember.permissions.has(PermissionsBitField.Flags.ManageRoles) ||
+    !botMember.permissions.has(PermissionsBitField.Flags.ManageNicknames)
   ) {
     return interaction.reply({
-      content:
-        "البوت يحتاج صلاحيات Manage Roles و Manage Nicknames.",
+      content: "البوت يحتاج صلاحيات Manage Roles و Manage Nicknames.",
       ephemeral: true
     });
   }
 
   try {
+    // البحث عن رول العصابة أو إنشائه
     let role = interaction.guild.roles.cache.find(
-      (r) =>
-        r.name.toLowerCase() === gangName.toLowerCase()
+      (r) => r.name.toLowerCase() === gangName.toLowerCase()
     );
 
     if (!role) {
@@ -120,17 +115,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
     }
 
+    // إعطاء الرول
     await member.roles.add(role);
 
+    // تغيير الاسم
     if (member.manageable) {
       await member.setNickname(gameName);
     }
 
+    // الرد التأكيدي (يظهر للمستخدم فقط Ephemeral)
     await interaction.reply({
       content:
         `تم تسجيلك بنجاح!\n` +
-        `اسم اللعبة: ${gameName}\n` +
-        `العصابة: ${gangName}`,
+        `اسم اللعبة: **${gameName}**\n` +
+        `العصابة: **${gangName}**`,
       ephemeral: true
     });
   } catch (error) {
@@ -138,8 +136,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (!interaction.replied) {
       await interaction.reply({
-        content:
-          "حدث خطأ. تأكد من صلاحيات البوت وترتيب الرولات.",
+        content: "حدث خطأ. تأكد من صلاحيات البوت وترتيب الرولات (يجب أن يكون رول البوت أعلى من رول العضو والرول المراد إعطاؤه).",
         ephemeral: true
       });
     }
